@@ -1,0 +1,8 @@
+- module: system
+  period: 10s
+  metricsets:
+    - cpu
+    - load
+    - memory
+    - network
+    - filesystem
