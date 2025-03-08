@@ -1,0 +1,14 @@
+# Changing SELinux in /etc/selinux/config requires a reboot to take effect. So,
+# setenforce 0 temporarily disables SELinux enforcement for the current session.
+- name: Disable SELinux on all servers
+  hosts: all
+  become: yes
+  tasks:
+    - name: Disable SELinux for current session
+      ansible.builtin.command:
+        cmd: "setenforce 0"
+    - name: Disable SELinux permanently
+      lineinfile:
+        path: /etc/selinux/config
+        regexp: '^SELINUX='
+        line: 'SELINUX=disabled'
