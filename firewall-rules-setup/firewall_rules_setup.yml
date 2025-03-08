@@ -1,0 +1,48 @@
+- name: Configure firewalld
+  hosts: all
+  become: yes
+  vars_files:
+    - includes/rules.yml  
+  tasks:
+    - name: Ensure firewalld is installed
+      ansible.builtin.package:
+        name: firewalld
+        state: present
+      
+    - name: Ensure firewalld is started and enabled
+      ansible.builtin.systemd:
+        name: firewalld
+        state: started
+        enabled: yes
+      
+    - name: Add listed firewall rich rules using command module
+      ansible.builtin.command:
+        cmd: "firewall-cmd --permanent --zone=public --add-rich-rule='rule family=ipv4 source address={{ item.1 }} port port={{ item.0.port }} protocol=tcp accept'"
+      when: "item.0.server_group in group_names"
+      loop: "{{ firewall_rules | subelements('source') }}"
+      register: firewall_rules_result
+      notify: reload firewalld
+      
+    # - name: Add listed firewall rich rules using firewalld module
+    #   ansible.builtin.firewalld:
+    #     rich_rule: "rule family='ipv4' source address='{{ item.1 }}' port port='{{ item.0.port }}' protocol='tcp' accept"
+    #     permanent: yes
+    #     state: enabled
+    #     immediate: yes
+    #   when: "item.0.server_group in group_names"
+    #   loop: "{{ firewall_rules | subelements('source') }}"
+    #   register: firewall_rules_result
+    #   notify: reload firewalld
+
+    # - name: Remove listed firewall rules
+    #   ansible.builtin.command:
+    #     cmd: "firewall-cmd --zone=public --permanent --remove-rich-rule='rule family=ipv4 source address={{ item.1 }} port port={{ item.0.port }} protocol=tcp accept'"
+    #   when: "item.0.server_group in group_names"
+    #   loop: "{{ firewall_rules | subelements('source') }}"
+    #   register: firewall_rules_removed
+    #   notify: reload firewalld
+
+  handlers:
+    - name: reload firewalld
+      ansible.builtin.command:
+        cmd: "firewall-cmd --reload"

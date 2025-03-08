@@ -1,0 +1,22 @@
+firewall_rules:
+  - port: 3306
+    server_group: db_servers
+    source:
+      - 192.168.1.10
+      - 192.168.1.11
+      - 192.168.1.12
+    comment: "Allow MySQL port 3306 from all app servers"
+
+  - port: 9092
+    server_group: kafka_servers
+    source:
+      - 192.168.1.10
+      - 192.168.1.11
+      - 192.168.1.12
+    comment: "Allow Kafka port 9092 from all app servers"
+
+  - port: 80
+    server_group: app_servers
+    source:
+      - 192.168.1.20
+    comment: "Allow ingress port 80 from web server"
