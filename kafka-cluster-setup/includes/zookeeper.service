@@ -1,0 +1,13 @@
+[Unit]
+Description=zookeeper
+After=syslog.target network.target
+
+[Service]
+Type=simple
+
+
+ExecStart=/opt/zook/bin/zookeeper-server-start.sh /opt/zook/config/zookeeper.properties
+ExecStop=/opt/zook/bin/zookeeper-server-stop.sh
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,191 @@
+- name: Add kafka-cluster host record in /etc/hosts
+  hosts: all
+  become: yes
+  tasks:
+    - name: Add IP and hostname to /etc/hosts
+      lineinfile:
+        path: /etc/hosts
+        line: "######## Kafka Cluster DNS Records #####"
+        state: present
+    - name: Add IP and hostname to /etc/hosts
+      lineinfile:
+        path: /etc/hosts
+        line: "{{ hostvars[item].ansible_host }} {{ item }}"
+        state: present
+      loop: "{{ groups['kafka_servers'] + groups['zookeeper_servers'] }}"
+
+- name: Install Java on kafka and zookeeper servers
+  hosts: 
+    - kafka_servers
+    - zookeeper_servers
+  become: yes
+  tasks:
+    - name: Install Java (OpenJDK) 17
+      ansible.builtin.yum:
+        name: java-17-openjdk
+        state: present
+
+- name: Download Kafka Source files
+  hosts: 
+    - kafka_servers
+    - zookeeper_servers
+  become: yes 
+  vars:
+    kafkasource: "https://dlcdn.apache.org/kafka/3.8.1/kafka_2.13-3.8.1.tgz"
+  tasks:
+    - name: Download Kafka to /tmp directory
+      ansible.builtin.get_url:
+        url: "{{ kafkasource }}"
+        dest: /tmp/{{ kafkasource | basename }}
+        mode: '0644'
+
+- name: Disable SELinux on all servers
+  hosts: all
+  become: yes
+  tasks:
+    - name: Disable SELinux
+      ansible.builtin.command:
+        cmd: "setenforce 0"
+    - name: Set SELINUX to disabled in /etc/selinux/config
+      lineinfile:
+        path: /etc/selinux/config
+        regexp: '^SELINUX='
+        line: 'SELINUX=disabled'
+
+- name: Extract Kafka and Zookeeper files on /opt directory
+  hosts:
+    - kafka_servers
+    - zookeeper_servers
+  become: yes
+  tasks:
+    - name: Delete /opt/zook directory (if it exists)
+      ansible.builtin.file:
+        path: /opt/zook
+        state: absent
+      when: "'zookeeper_servers' in group_names"
+    - name: Create /opt/zook directory for Zookeeper servers
+      ansible.builtin.file:
+        path: /opt/zook
+        state: directory
+      when: "'zookeeper_servers' in group_names"
+
+    - name: Delete /opt/kafka directory (if it exists)
+      ansible.builtin.file:
+        path: /opt/kafka
+        state: absent
+      when: "'kafka_servers' in group_names"
+    - name: Create /opt/kafka directory for Kafka servers
+      ansible.builtin.file:
+        path: /opt/kafka
+        state: directory
+      when: "'kafka_servers' in group_names"
+
+    - name: Extract files for Zookeeper servers
+      ansible.builtin.command:
+        cmd: "tar -zxf /tmp/{{ kafkasource | basename }} --directory /opt/zook --strip-components 1"
+      when: "'zookeeper_servers' in group_names"
+    - name: Extract files for Kafka servers
+      ansible.builtin.command:
+        cmd: "tar -zxf /tmp/{{ kafkasource | basename }} --directory /opt/kafka --strip-components 1"
+      when: "'kafka_servers' in group_names"
+
+- name: Zookeeper Setup
+  hosts: zookeeper_servers
+  become: yes
+  tasks:
+    - name: Create directory for Zookeeper data
+      ansible.builtin.file:
+        path: /data/zookeeper
+        state: directory
+    - name: Write myid to /data/zookeeper/myid
+      ansible.builtin.copy:
+        dest: /data/zookeeper/myid
+        content: "{{ ansible_play_hosts.index(inventory_hostname) + 1 }}"
+    - name: Copy zookeeper config to /opt/zook/config/zookeeper.properties
+      template:
+        src: includes/zook-zookeeper.properties.j2
+        dest: /opt/zook/config/zookeeper.properties
+        mode: '0664'
+    - name: Copy zookeeper service file to /etc/systemd/system/zookeeper.service
+      ansible.builtin.copy:
+        src: includes/zookeeper.service
+        dest: /etc/systemd/system/zookeeper.service
+        mode: '0644'
+    - name: Add executable permission to all files in /opt/zook/bin/
+      ansible.builtin.command:
+        cmd: "chmod -R +x /opt/zook/bin/"
+
+- name: Start Zookeeper
+  hosts: zookeeper_servers
+  become: yes
+  tasks:
+    - name: Reload systemd daemon to apply changes
+      ansible.builtin.systemd:
+        daemon_reload: yes
+    - name: Start zookeeper service
+      ansible.builtin.systemd:
+        name: zookeeper
+        state: restarted
+        enabled: yes
+
+- name: Kafka Setup
+  hosts: kafka_servers
+  become: yes
+  gather_facts: yes
+  tasks:
+    - name: Create directory for Kafka log
+      ansible.builtin.file:
+        path: /var/log/kafka-logs
+        state: directory
+    - name: Copy server.properties to /opt/kafka/config/server.properties
+      template:
+        src: includes/kafka-server.properties.j2
+        dest: /opt/kafka/config/server.properties
+        mode: '0664'
+    - name: Copy kafka service file to /etc/systemd/system/kafka.service
+      ansible.builtin.copy:
+        src: includes/kafka.service
+        dest: /etc/systemd/system/kafka.service
+        mode: '0644'
+    - name: Add executable permission to all files in /opt/kafka/bin/
+      ansible.builtin.command:
+        cmd: "chmod -R +x /opt/kafka/bin/"
+
+- name: Start Kafka
+  hosts: kafka_servers
+  become: yes
+  tasks:
+    - name: Reload systemd daemon to apply changes
+      ansible.builtin.systemd:
+        daemon_reload: yes
+    - name: Start kafka service
+      ansible.builtin.systemd:
+        name: kafka
+        state: restarted
+        enabled: yes
+
+- name: Setup Redpanda
+  hosts: redpanda_servers
+  become: yes
+  tasks:
+    - name: Add redpanda repo in yum repo list
+      shell: |
+        curl -1sLf \
+          'https://dl.redpanda.com/nzc4ZYQK3WRGd9sy/redpanda/cfg/setup/bash.rpm.sh' \
+          | sudo -E bash
+      args:
+        executable: /bin/bash
+    - name: Install redpanda
+      ansible.builtin.yum:
+        name: redpanda-console
+        state: present
+    - name: Copy redpanda config to /etc/redpanda/redpanda-console-config.yaml
+      template:
+        src: includes/redpanda-console-config.yaml.j2
+        dest: /etc/redpanda/redpanda-console-config.yaml
+        mode: '0644'
+    - name: Start and enable redpanda
+      ansible.builtin.systemd:
+        name: redpanda-console
+        state: restarted
+        enabled: yes

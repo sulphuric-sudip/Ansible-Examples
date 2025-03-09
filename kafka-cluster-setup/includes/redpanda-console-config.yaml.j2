@@ -1,0 +1,8 @@
+kafka:
+  brokers:
+{% for host in groups['kafka_servers'] %}
+    - {{ host }}:9091
+{% endfor %}
+server:
+    listenAddress:
+    listenPort: 8080
